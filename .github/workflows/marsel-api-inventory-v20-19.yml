@@ -1,18 +1,22 @@
-name: MARSEL V20.19 Official API Inventory — READ ONLY
+name: MARSEL V20.21 Official API Inventory — READ ONLY
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'scripts/marsel_api_inventory_v20_14.py'
+      - 'scripts/marsel_api_inventory_v20_21.py'
+      - '.github/workflows/marsel-api-inventory-v20-19.yml'
+  pull_request:
+    paths:
+      - 'scripts/marsel_api_inventory_v20_21.py'
       - '.github/workflows/marsel-api-inventory-v20-19.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: marsel-api-inventory-v20-19
+  group: marsel-api-inventory-v20-21-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,7 +29,7 @@ jobs:
       ROAPP_API_BASE: https://api.roapp.io/v2
       ROAPP_DOCS_INDEX: https://roapp.readme.io/llms.txt
       ROAPP_TIMEOUT: '30'
-      MARSEL_API_INVENTORY_OUTPUT: marsel-api-inventory-v20-19.json
+      MARSEL_API_INVENTORY_OUTPUT: marsel-api-inventory-v20-21.json
       MARSEL_MAX_DOCS: '300'
     steps:
       - uses: actions/checkout@v6
@@ -39,36 +43,44 @@ jobs:
         id: docs
         run: |
           set -euo pipefail
-          status="$(curl -L -sS -o /tmp/roapp-llms.txt -w '%{http_code}' --max-time 30 -A 'MARSEL-Audit-V20.19' "$ROAPP_DOCS_INDEX" || true)"
+          status="$(curl -L -sS -o /tmp/roapp-llms.txt -w '%{http_code}' --max-time 30 -A 'MARSEL-Audit-V20.21' "$ROAPP_DOCS_INDEX" || true)"
           echo "http=$status" >> "$GITHUB_OUTPUT"
           case "$status" in 200|401|403|404|429|500|502|503) exit 0 ;; *) exit 1 ;; esac
-      - name: Run V20.19 inventory
+      - name: Run V20.21 inventory
         if: steps.docs.outputs.http == '200'
-        run: python scripts/marsel_api_inventory_v20_14.py
-      - name: Validate V20.19 report
+        run: python scripts/marsel_api_inventory_v20_21.py
+      - name: Validate V20.21 report
         if: steps.docs.outputs.http == '200'
         run: |
           set -euo pipefail
-          test -s marsel-api-inventory-v20-19.json
+          test -s marsel-api-inventory-v20-21.json
           python - <<'PY'
           import json
-          d=json.load(open('marsel-api-inventory-v20-19.json',encoding='utf-8'))
-          assert d['version']=='20.19'
+          d=json.load(open('marsel-api-inventory-v20-21.json',encoding='utf-8'))
+          s=d['summary']
+          print('REPORT_VERSION=',d['version'])
+          print('READONLY=',d['readonly'])
+          print('WRITE_REQUESTS_MADE=',d['write_requests_made'])
+          print('RO_APP_DATA_MUTATED=',d['ro_app_data_mutated'])
+          print('DOCUMENTED_OPERATIONS=',s['documented_operations'])
+          print('OPERATIONS_WITH_EXTRACTED_PATHS=',s['operations_with_extracted_paths'])
+          print('OPERATIONS_WITHOUT_EXTRACTED_PATHS=',s['operations_without_extracted_paths'])
+          print('DOCUMENTED_GET_OPERATIONS=',s['documented_get_operations'])
+          print('GET_OPERATIONS_PROBED=',s['get_operations_probed'])
+          print('GET_OPERATIONS_NOT_PROBED=',s['get_operations_not_probed'])
+          print('GET_OPERATIONS_WITH_UNRESOLVED_PROBE_STATE=',s['get_operations_with_unresolved_probe_state'])
+          print('INVENTORY_SHA256=',s['inventory_sha256'])
+          assert d['version']=='20.21'
           assert d['readonly'] is True and d['write_requests_made']==0 and d['ro_app_data_mutated'] is False
           assert d['method_policy']['allowed']==['GET']
-          assert d['summary']['documented_operations'] > 1
-          assert d['summary']['operations_with_extracted_paths'] > 1
+          assert s['documented_operations'] > 1
+          assert s['operations_with_extracted_paths'] > 1
           print('VALIDATION=PASS')
-          print('DOCUMENTED_OPERATIONS=',d['summary']['documented_operations'])
-          print('OPERATIONS_WITH_EXTRACTED_PATHS=',d['summary']['operations_with_extracted_paths'])
-          print('GET_OPERATIONS_PROBED=',d['summary']['get_operations_probed'])
-          print('GET_OPERATIONS_NOT_PROBED=',d['summary']['get_operations_not_probed'])
-          print('GET_OPERATIONS_WITH_UNRESOLVED_PROBE_STATE=',d['summary']['get_operations_with_unresolved_probe_state'])
-          print('INVENTORY_SHA256=',d['summary']['inventory_sha256'])
           PY
-      - name: Upload V20.19 inventory
+      - name: Upload V20.21 inventory
+        if: always() && steps.docs.outputs.http == '200'
         uses: actions/upload-artifact@v7
         with:
-          name: marsel-v20-19-api-inventory
-          path: marsel-api-inventory-v20-19.json
+          name: marsel-v20-21-api-inventory
+          path: marsel-api-inventory-v20-21.json
           if-no-files-found: error
