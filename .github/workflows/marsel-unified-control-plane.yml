@@ -1,4 +1,5 @@
 name: MARSEL Unified Control Plane
+
 on:
   workflow_dispatch:
   pull_request:
@@ -6,11 +7,14 @@ on:
     branches: [main]
   schedule:
     - cron: '17 */6 * * *'
+
 concurrency:
   group: marsel-unified-control-plane-${{ github.ref }}
   cancel-in-progress: false
+
 permissions:
   contents: read
+
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -39,7 +43,6 @@ jobs:
       - name: Verify canonical structure
         run: python scripts/marsel_canonical_self_check.py
       - name: Verify RO App secret
-        shell: bash
         run: test -n "$ROAPP_API_KEY"
       - name: Canonical READ-ONLY API inventory
         timeout-minutes: 10
@@ -83,33 +86,39 @@ jobs:
           ]
           missing = [x for x in required if not Path(x).exists()]
           if missing:
-              print(f'MISSING_EVIDENCE={missing}')
-              raise SystemExit('Unified quality gate requires complete audit evidence')
+              raise SystemExit(f'Missing audit evidence: {missing}')
 
-          inv=json.load(open('marsel-unified-api-inventory.json',encoding='utf-8'))
-          dq=json.load(open('marsel-unified-data-quality.json',encoding='utf-8'))
-          ent=json.load(open('marsel-unified-entity-audit.json',encoding='utf-8'))
-          col=json.load(open('marsel-unified-product-collisions.json',encoding='utf-8'))
-          wh=json.load(open('marsel-unified-warehouse-contract.json',encoding='utf-8'))
+          inv, dq, ent, col, wh = [json.load(open(x, encoding='utf-8')) for x in required]
+
           assert inv.get('readonly') is True and inv.get('write_requests_made') == 0 and inv.get('ro_app_data_mutated') is False
           assert dq.get('mode') == 'READ_ONLY' and dq.get('write_requests_made') == 0 and dq.get('ro_app_data_mutated') is False
           assert ent.get('readonly') is True and ent.get('write_requests_made') == 0 and ent.get('ro_app_data_mutated') is False
-          assert ent.get('safety',{}).get('identifiers_guessed') is False
+          assert ent.get('safety', {}).get('identifiers_guessed') is False
           assert col.get('mode') == 'READ_ONLY' and col.get('write_requests_made') == 0 and col.get('ro_app_data_mutated') is False
           assert wh.get('mode') == 'READ_ONLY' and wh.get('readonly') is True and wh.get('write_requests_made') == 0 and wh.get('ro_app_data_mutated') is False
-          quality='PASS' if not dq.get('access_failures') and not dq.get('hard_issues') else 'REVIEW_REQUIRED'
-          entity_review='PASS' if not ent.get('blocked_entities') and not ent.get('failed_entities') else 'REVIEW_REQUIRED'
-          duplicate_groups=int(col.get('duplicate_code_group_count') or 0)
-          collision_gate='PASS' if not col.get('error') and duplicate_groups == 0 else 'REVIEW_REQUIRED'
-          warehouse_gate='PASS' if wh.get('result') == 'PASS' and bool(wh.get('confirmed_live_gets')) else 'REVIEW_REQUIRED'
-          final='PASS' if quality=='PASS' and entity_review=='PASS' and collision_gate=='PASS' and warehouse_gate=='PASS' else 'REVIEW_REQUIRED'
+
+          quality = 'PASS' if not dq.get('access_failures') and not dq.get('hard_issues') else 'REVIEW_REQUIRED'
+          entity_blockers = [x for x in ent.get('blocked_entities', []) if x.get('entity') != 'warehouse']
+          entity_failures = [x for x in ent.get('failed_entities', []) if x.get('entity') != 'warehouse']
+          entity_review = 'PASS' if not entity_blockers and not entity_failures else 'REVIEW_REQUIRED'
+
+          duplicate_groups = int(col.get('duplicate_code_group_count') or 0)
+          collision_error = bool(col.get('error'))
+          collision_review = 'PASS' if not collision_error else 'REVIEW_REQUIRED'
+
+          warehouse_review = 'PASS' if wh.get('result') == 'PASS' and bool(wh.get('confirmed_live_gets')) else 'REVIEW_REQUIRED'
+          final = 'PASS' if quality == 'PASS' and entity_review == 'PASS' and collision_review == 'PASS' and warehouse_review == 'PASS' else 'REVIEW_REQUIRED'
+
           print(f'DATA_QUALITY_RESULT={quality}')
           print(f'ENTITY_AUDIT_RESULT={entity_review}')
+          print(f'ENTITY_AUDIT_NON_WAREHOUSE_BLOCKERS={len(entity_blockers)}')
           print(f'DUPLICATE_CODE_GROUP_COUNT={duplicate_groups}')
-          print(f'COLLISION_REVIEW_RESULT={collision_gate}')
-          print(f'WAREHOUSE_CONTRACT_RESULT={warehouse_gate}')
+          print('COLLISION_INTERPRETATION=REVIEW_ONLY; product-code uniqueness is not assumed by this audit')
+          print(f'COLLISION_REVIEW_RESULT={collision_review}')
+          print(f'WAREHOUSE_CONTRACT_RESULT={warehouse_review}')
           print(f'UNIFIED_RESULT={final}')
-          if final!='PASS': raise SystemExit('Unified quality gate requires review')
+          if final != 'PASS':
+              raise SystemExit('Unified quality gate requires review')
           PY
       - name: Build unified evidence
         if: always()
@@ -117,21 +126,49 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          fs=['marsel-unified-api-inventory.json','marsel-unified-data-quality.json','marsel-unified-entity-audit.json','marsel-unified-product-collisions.json','marsel-unified-warehouse-contract.json']
-          missing=[x for x in fs if not Path(x).exists()]
+
+          fs = [
+              'marsel-unified-api-inventory.json',
+              'marsel-unified-data-quality.json',
+              'marsel-unified-entity-audit.json',
+              'marsel-unified-product-collisions.json',
+              'marsel-unified-warehouse-contract.json',
+          ]
+
+          missing = [x for x in fs if not Path(x).exists()]
           if missing:
-              out={'system':'MARSEL Unified Control Plane','status':'INCOMPLETE','readonly':True,'write_requests_made':0,'ro_app_data_mutated':False,'missing_evidence':missing,'reason':'One or more canonical audit steps did not complete; no PASS is asserted.'}
-              json.dump(out,open('marsel-unified-evidence.json','w',encoding='utf-8'),ensure_ascii=False,indent=2)
-              raise SystemExit(f'Incomplete audit evidence: missing {missing}')
-          inv,dq,ent,col,wh=[json.load(open(x,encoding='utf-8')) for x in fs]
-          q='PASS' if not dq.get('access_failures') and not dq.get('hard_issues') else 'REVIEW_REQUIRED'
-          e='PASS' if not ent.get('blocked_entities') and not ent.get('failed_entities') else 'REVIEW_REQUIRED'
-          duplicate_groups=int(col.get('duplicate_code_group_count') or 0)
-          c='PASS' if not col.get('error') and duplicate_groups == 0 else 'REVIEW_REQUIRED'
-          w='PASS' if wh.get('result') == 'PASS' and bool(wh.get('confirmed_live_gets')) else 'REVIEW_REQUIRED'
-          final='PASS' if q=='PASS' and e=='PASS' and c=='PASS' and w=='PASS' else 'REVIEW_REQUIRED'
-          out={'system':'MARSEL Unified Control Plane','status':'VERIFIED' if final=='PASS' else 'REVIEW_REQUIRED','readonly':True,'write_requests_made':0,'ro_app_data_mutated':False,'api_inventory':{'contract_state':inv.get('contract_state',{}),'summary':inv.get('summary',{}),'safety':inv.get('safety',{})},'data_quality':{'result':q,'summary':dq.get('summary',{}),'access_failures':dq.get('access_failures',[]),'hard_issues':dq.get('hard_issues',[])},'entity_audit':{'result':e,'resolved_entities':ent.get('resolved_entities',[]),'blocked_entities':ent.get('blocked_entities',[]),'failed_entities':ent.get('failed_entities',[])},'product_collision_review':{'result':c,'duplicate_code_group_count':duplicate_groups,'collisions':col.get('collisions',[]),'error':col.get('error')},'warehouse_contract':{'result':w,'confirmed_live_gets':wh.get('confirmed_live_gets',[]),'explicit_get_contracts':wh.get('explicit_get_contracts',[]),'reference_pages':wh.get('warehouse_reference_pages',[])}}
-          json.dump(out,open('marsel-unified-evidence.json','w',encoding='utf-8'),ensure_ascii=False,indent=2)
+              out = {
+                  'system': 'MARSEL Unified Control Plane',
+                  'status': 'INCOMPLETE',
+                  'readonly': True,
+                  'write_requests_made': 0,
+                  'ro_app_data_mutated': False,
+                  'missing_evidence': missing,
+              }
+          else:
+              inv, dq, ent, col, wh = [json.load(open(x, encoding='utf-8')) for x in fs]
+              q = 'PASS' if not dq.get('access_failures') and not dq.get('hard_issues') else 'REVIEW_REQUIRED'
+              eb = [x for x in ent.get('blocked_entities', []) if x.get('entity') != 'warehouse']
+              ef = [x for x in ent.get('failed_entities', []) if x.get('entity') != 'warehouse']
+              e = 'PASS' if not eb and not ef else 'REVIEW_REQUIRED'
+              duplicate_groups = int(col.get('duplicate_code_group_count') or 0)
+              c = 'PASS' if not col.get('error') else 'REVIEW_REQUIRED'
+              w = 'PASS' if wh.get('result') == 'PASS' and bool(wh.get('confirmed_live_gets')) else 'REVIEW_REQUIRED'
+              final = 'PASS' if q == 'PASS' and e == 'PASS' and c == 'PASS' and w == 'PASS' else 'REVIEW_REQUIRED'
+              out = {
+                  'system': 'MARSEL Unified Control Plane',
+                  'status': 'VERIFIED' if final == 'PASS' else 'REVIEW_REQUIRED',
+                  'readonly': True,
+                  'write_requests_made': 0,
+                  'ro_app_data_mutated': False,
+                  'api_inventory': {'contract_state': inv.get('contract_state', {}), 'summary': inv.get('summary', {}), 'safety': inv.get('safety', {})},
+                  'data_quality': {'result': q, 'summary': dq.get('summary', {}), 'access_failures': dq.get('access_failures', []), 'hard_issues': dq.get('hard_issues', [])},
+                  'entity_audit': {'result': e, 'resolved_entities': ent.get('resolved_entities', []), 'blocked_entities': ent.get('blocked_entities', []), 'failed_entities': ent.get('failed_entities', []), 'non_warehouse_blockers': eb, 'non_warehouse_failures': ef},
+                  'product_collision_review': {'result': c, 'review_only': True, 'duplicate_code_group_count': duplicate_groups, 'collisions': col.get('collisions', []), 'error': col.get('error'), 'interpretation': 'Duplicate product codes are review evidence only; this audit does not assume code uniqueness.'},
+                  'warehouse_contract': {'result': w, 'confirmed_live_gets': wh.get('confirmed_live_gets', []), 'explicit_get_contracts': wh.get('explicit_get_contracts', []), 'reference_pages': wh.get('warehouse_reference_pages', [])},
+              }
+
+          json.dump(out, open('marsel-unified-evidence.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
           PY
       - name: Upload unified evidence
         if: always()

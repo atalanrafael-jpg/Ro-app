@@ -90,7 +90,9 @@ class OpenAIAdsClient:
         *,
         validate_only: bool | None = None,
     ) -> dict[str, Any]:
-        self._validate_config()
+        # Validate the request contract before checking external integration
+        # configuration. Invalid caller input must produce its own deterministic
+        # validation error even when Ads credentials are absent in the environment.
         if not 1 <= len(events) <= 1000:
             raise ValueError("OpenAI Ads принимает от 1 до 1000 событий за запрос")
         for event in events:
@@ -99,6 +101,8 @@ class OpenAIAdsClient:
                 event.source_url = self._sanitize_source_url(event.source_url)
                 if not event.source_url:
                     raise ValueError("source_url обязателен для web-события")
+
+        self._validate_config()
 
         request = OpenAIAdsEventsRequest(
             validate_only=settings.openai_ads_validate_only if validate_only is None else validate_only,

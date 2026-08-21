@@ -1,9 +1,18 @@
-# MARSEL / Ro App — Единая каноническая структура
+# MARSEL / ROAPP — ЕДИНАЯ КАНОНИЧЕСКАЯ СТРУКТУРА
 
-Дата ревизии: 2026-08-15
+Дата ревизии: 2026-08-21  
 Ветка: `main`
 
-## 1. Единственная точка автоматического live-аудита
+## 1. Единая система
+
+`MARSEL` и `ROAPP` — один продукт и один исходный контур: `atalanrafael-jpg/Ro-app`.
+
+- MARSEL — бизнес-контур.
+- ROAPP — технологический контур: API, данные, интеграции, автоматизация, MCP и CI/CD.
+- `main` — каноническая ветка.
+- Параллельные бизнес- и технические проекты не считаются отдельными источниками истины.
+
+## 2. Единственная точка live-аудита RO App
 
 `.github/workflows/marsel-unified-control-plane.yml`
 
@@ -12,66 +21,79 @@
 1. API inventory — READ ONLY
 2. Data quality — READ ONLY
 3. Entity audit — READ ONLY
-4. Product-code collision review — READ ONLY
-5. Unified safety/quality gate
-6. Unified evidence artifact
+4. Product-code collision review — READ ONLY / advisory
+5. Warehouse contract audit — READ ONLY
+6. Unified safety/quality gate
+7. Unified evidence artifact
 
-Другие workflow не должны выполнять самостоятельный live-аудит Ro App.
+Другие workflow не должны выполнять самостоятельный live-аудит RO App.
 
-## 2. Канонические runtime-компоненты
+## 3. Канонические runtime-компоненты
 
-- `scripts/marsel_api_inventory_v20_31.py` — текущая точка входа inventory; использует `v20_29` как общий движок.
-- `scripts/marsel_api_inventory_v20_29.py` — внутренний общий движок inventory; напрямую workflow не запускается.
+- `scripts/marsel_api_inventory_v20_32.py` — текущая точка входа API inventory.
 - `scripts/marsel_data_quality_v22_readonly.py` — data quality.
-- `scripts/marsel_entity_audit_v20_32.py` — entity audit.
-- `scripts/marsel_product_code_collision_audit_v22_1.py` — collision review.
-- `scripts/marsel_api_v2_probe_v1.py` — канонический read-only probe.
-- `scripts/marsel_api_v2_canonical_registry_v1.py` — evidence/registry support.
+- `scripts/marsel_entity_audit_v20_35.py` — entity audit.
+- `scripts/marsel_product_code_collision_audit_v22_1.py` — advisory collision review.
+- `scripts/marsel_warehouse_contract_v20_36.py` — warehouse contract audit.
+- `scripts/marsel_api_v2_probe_v1.py` — canonical read-only probe.
+- `scripts/marsel_api_v2_canonical_registry_v1.py` — API evidence/registry support.
+- `scripts/marsel_canonical_self_check.py` — structural self-check.
 
-Специализированные проверки каталогов, reference-data, backup и контрактов сохраняются только там, где они не дублируют live-аудит Unified Control Plane.
+Старые versioned auditors сохраняются только как исторический материал и не подключаются к live Control Plane.
 
-## 3. Единая прикладная структура
+## 4. Единая прикладная структура
 
 ```text
 Ro-app/
-├── app/                 # прикладной runtime
+├── app/                 # application runtime
 ├── ai_service/          # AI service layer
-├── config/              # конфигурация и fixture
+├── config/              # configuration and fixtures
 ├── data/                # reference/catalog data
-├── docs/                # единая документация и контракты
-├── scripts/             # канонические и специализированные проверки
-├── tests/               # unit/integration tests
+├── docs/                # canonical documentation and contracts
+├── scripts/             # canonical + justified specialized checks
+├── tests/               # tests
 ├── javascript/          # GPT integration
 ├── typescript/          # GPT integration
 ├── python/              # Python integration
-├── .github/workflows/   # CI + единый MARSEL live-audit
+├── .github/workflows/   # CI + Unified Control Plane
+├── .agents/             # agent skills/contracts
+├── старые данные/       # historical material; not active
 └── requirements.txt     # Python dependencies
 ```
 
-## 4. CI-разделение
+## 5. CI-разделение
 
-- `marsel-unified-control-plane.yml` — единственный live Ro App audit.
-- `test.yml` — только unit tests; live API-аудит сюда не входит.
+- `marsel-unified-control-plane.yml` — единственный RO App live-audit workflow.
+- `test.yml` — unit/compile/dependency validation; live RO App audit сюда не входит.
 - `language-quality.yml` — языковые проверки.
-- `generate-drafts.yml` — генерация drafts.
+- `generate-drafts.yml` — draft generation.
+- `mcp-production.yml` — MCP-specific readiness checks.
 
-## 5. Обязательные safety invariants
+## 6. Обязательные safety invariants
 
 Канонический контур обязан подтверждать:
 
 - `WRITE_REQUESTS_MADE=0`;
 - `RO_APP_DATA_MUTATED=false`;
-- отсутствие угаданных идентификаторов;
+- `identifiers_guessed=false`;
 - отсутствие POST/PUT/PATCH/DELETE в live-аудите;
 - неполные live-данные = `REVIEW_REQUIRED`, никогда не `PASS`;
 - старый успешный запуск не заменяет новый запуск на текущем `main`.
 
-## 6. Что удалено при консолидации
+## 7. Правила архива
 
-Удалены подтверждённо устаревшие дублирующие audit/inventory/quality/test-компоненты. Generic `test.yml` больше не содержит собственного Ro App live-аудита.
+`старые данные/` предназначена только для исторических файлов, устаревших snapshots и заменённых реализаций.
 
-## 7. Критерий завершения
+Архивные материалы не являются источником текущего состояния и не должны подключаться в production workflow без отдельной миграции и повторной проверки.
 
-Проект считается проверенным только после успешного запуска канонического Unified Control Plane на текущем `main` с созданием единого evidence artifact и прохождением всех safety/data/entity/collision gates.
+Удаление исторических данных не производится, если их назначение нельзя подтвердить. В таком случае они остаются в архиве.
 
-До этого статус проекта — `REVIEW_REQUIRED`.
+## 8. Критерий системной готовности
+
+Проект не объявляется полностью готовым только на основании наличия кода или успешного CI.
+
+Для production WRITE обязательны прямые evidence по:
+
+`backup/export → restore integrity → schema reconciliation → full READ-ONLY inventory → duplicate/orphan/reference analysis → dry-run → idempotency → rollback → controlled write → post-write verification`.
+
+До прохождения этих gate'ов production WRITE остаётся отключённым.
