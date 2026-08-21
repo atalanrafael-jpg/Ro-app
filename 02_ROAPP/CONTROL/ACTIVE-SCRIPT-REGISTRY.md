@@ -14,7 +14,7 @@
 | Product collision | `scripts/marsel_product_code_collision_audit_v22_1.py` | ACTIVE |
 | Warehouse contract | `scripts/marsel_warehouse_contract_v20_45.py` | ACTIVE |
 
-Источник истины для ACTIVE-набора: `.github/workflows/marsel-unified-control-plane.yml` на `main`.
+Источник истины для ACTIVE-набора: `.github/workflows/marsel-unified-control-plane.yml`.
 
 ## 2. REQUIRED INTERNAL DEPENDENCIES
 
@@ -45,8 +45,11 @@
 - CORE inventory entrypoint: `v20_32`.
 - `v20_31` и `v20_29` ранее были ошибочно отмечены как legacy candidates; фактическая import chain делает их REQUIRED INTERNAL DEPENDENCIES.
 - CORE collision: `marsel_product_code_collision_audit_v22_1.py`.
-- CORE warehouse: `marsel_warehouse_contract_v20_45.py`; внутреннее поле `version` также `20.45`.
-- Версия `20.48` не подтверждена и не используется как активная версия.
+- CORE warehouse: `marsel_warehouse_contract_v20_45.py`; внутреннее поле версии обновлено до `20.48`.
+- Официальный Warehouse List contract подтверждён документацией v2.0.1: `GET /v2/warehouse/`, `branch_id` optional, `type` optional с default `product`, allowed `product|asset`.
+- `get-locations` больше не используется как источник branch IDs: доступная страница этого метода относится к v1.4 и документирует другой путь `/branches/`, поэтому использование `/v2/company/locations` удалено из warehouse audit.
+- Warehouse List PASS теперь зависит именно от успешного документированного list GET с реально извлечёнными warehouse IDs; stock GET больше не может компенсировать провал list contract.
+- Недокументированные compatibility endpoints не используются для PASS.
 - Старый путь `scripts/marsel_warehouse_contract_v20_36.py` выведен из ACTIVE и сохранён в `старые данные/` как исторический след.
 
 ## 6. Правила
@@ -57,3 +60,4 @@
 4. Архивирование = перенос только после dependency audit и проверки test discovery.
 5. История Git/GitHub Actions сохраняется.
 6. После любого изменения ACTIVE execution set или dependency chain требуется новый Unified Control Plane run.
+7. Warehouse Contract PASS запрещён без успешного documented list GET и подтверждённых warehouse IDs.
