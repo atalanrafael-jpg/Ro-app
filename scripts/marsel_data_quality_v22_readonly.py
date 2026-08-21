@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """MARSEL V22.3 — comprehensive read-only data-quality audit.
 
-Only GET requests are used. Product-code/SKU/number duplicates are review
-findings unless uniqueness is explicitly established by the API contract.
-Missing/duplicate IDs, count mismatches, access failures and incomplete
-pagination remain hard failures.
+Only GET requests are used. Product-code duplicates are inventory signals and
+are classified by the dedicated collision audit; they are not blocking review
+findings in this layer. Missing/duplicate IDs, count mismatches, access
+failures and incomplete pagination remain hard failures. SKU/number duplicates
+remain review findings unless a downstream contract/classifier proves them
+benign.
 """
 from __future__ import annotations
 
@@ -137,7 +139,9 @@ def main() -> int:
                 hard_issues.append(f"{name}.{key}={r[key]}")
         if not r.get("count_matches_rows", True):
             hard_issues.append(f"{name}.count_mismatch={r['expected_count']}!={r['rows_read']}")
-        for key in ("duplicate_code_group_count", "duplicate_sku_group_count", "duplicate_number_group_count"):
+        # Product-code duplication is deliberately NOT a review issue here.
+        # The dedicated collision classifier is the authoritative gate for it.
+        for key in ("duplicate_sku_group_count", "duplicate_number_group_count"):
             if r.get(key):
                 review_issues.append(f"{name}.{key}={r[key]}")
         if not r.get("pagination_complete"):
@@ -148,7 +152,8 @@ def main() -> int:
               "method_policy": {"allowed": ["GET"], "blocked": ["POST", "PUT", "PATCH", "DELETE"]},
               "write_requests_made": 0, "ro_app_data_mutated": False, "collections": results,
               "access_failures": access_failures, "hard_issues": hard_issues, "review_issues": review_issues,
-              "policy": {"code_uniqueness_established": False, "duplicate_codes_are_hard_failures": False},
+              "policy": {"code_uniqueness_established": False, "duplicate_codes_are_hard_failures": False,
+                         "duplicate_code_authoritative_classifier": "product-collision-audit-v22.3"},
               "elapsed_s": round(time.monotonic() - started, 3)}
     report["summary"] = {"collections_audited": len(results), "products_rows": results["products"]["rows_read"],
                           "services_rows": results["services"]["rows_read"], "orders_rows": results["orders"]["rows_read"],

@@ -1,7 +1,7 @@
 # MARSEL / Ro App — Active Script Registry
 
 Дата контрольной ревизии: 2026-08-21
-Ветка: `main`
+Ветка: `fix/unified-issues-19-25-27-30-31-35-42`
 
 ## 1. ACTIVE / CORE — фактически вызывается Unified Control Plane
 
@@ -11,49 +11,42 @@
 | API inventory entrypoint | `scripts/marsel_api_inventory_v20_32.py` | ACTIVE |
 | Data quality | `scripts/marsel_data_quality_v22_readonly.py` | ACTIVE |
 | Entity audit | `scripts/marsel_entity_audit_v20_35.py` | ACTIVE |
-| Product collision | `scripts/marsel_product_code_collision_audit_v22_1.py` | ACTIVE |
-| Warehouse contract | `scripts/marsel_warehouse_contract_v20_45.py` | ACTIVE |
+| Product collision | `scripts/marsel_product_code_collision_audit_v22_1.py` — internal `22.3` | ACTIVE |
+| Warehouse contract | `scripts/marsel_warehouse_contract_v20_45.py` — internal `20.49` | ACTIVE |
 
-Источник истины для ACTIVE-набора: `.github/workflows/marsel-unified-control-plane.yml` на `main`.
+Источник истины для ACTIVE-набора: `.github/workflows/marsel-unified-control-plane.yml`.
 
 ## 2. REQUIRED INTERNAL DEPENDENCIES
 
-Эти файлы не являются самостоятельными entrypoints Unified Control Plane, но обязательны для ACTIVE-кода:
-
-- `scripts/marsel_api_inventory_v20_31.py` — импортируется напрямую из `marsel_api_inventory_v20_32.py`; содержит реализацию inventory.
+- `scripts/marsel_api_inventory_v20_31.py` — импортируется из `marsel_api_inventory_v20_32.py`.
 - `scripts/marsel_api_inventory_v20_29.py` — используется как базовый модуль из `marsel_api_inventory_v20_31.py`.
 
-Следовательно, `v20_29` и `v20_31` не являются кандидатами на архивирование до рефакторинга dependency chain.
+Эти зависимости не архивируются до завершения dependency audit.
 
 ## 3. SUPPORT
 
-- `scripts/marsel_api_v2_canonical_registry_v1.py` — API registry/evidence support.
-- `scripts/marsel_api_v2_probe_v1.py` — read-only API probe support.
-- `scripts/generate_drafts.py` — draft-generation support; не относится к live Ro App audit.
+- `scripts/marsel_api_v2_canonical_registry_v1.py`
+- `scripts/marsel_api_v2_probe_v1.py`
+- `scripts/generate_drafts.py`
 
 ## 4. LEGACY / REVIEW CANDIDATES
 
-Следующие файлы требуют отдельного dependency audit; их нельзя архивировать только по номеру версии:
+Исторические варианты не архивируются автоматически по номеру версии. Перед переносом требуется dependency audit и проверка test discovery.
 
-- `scripts/marsel_entity_audit_v20_32.py`
-- `scripts/marsel_data_contract_v20_26.py`
-- `scripts/marsel_coverage_audit_v20_25.py`
-- другие исторические варианты, не входящие в ACTIVE entrypoint set и не подтверждённые как internal dependencies.
+## 5. Текущие исправления
 
-## 5. Исправленные расхождения
-
-- CORE inventory entrypoint: `v20_32`.
-- `v20_31` и `v20_29` ранее были ошибочно отмечены как legacy candidates; фактическая import chain делает их REQUIRED INTERNAL DEPENDENCIES.
-- CORE collision: `marsel_product_code_collision_audit_v22_1.py`.
-- CORE warehouse: `marsel_warehouse_contract_v20_45.py`; внутреннее поле `version` также `20.45`.
-- Версия `20.48` не подтверждена и не используется как активная версия.
-- Старый путь `scripts/marsel_warehouse_contract_v20_36.py` выведен из ACTIVE и сохранён в `старые данные/` как исторический след.
+- Product collision audit обновлён до внутренней версии `22.3`: `REAL_COLLISION` и `UNRESOLVED` блокируют unified PASS; `LEGITIMATE_REUSE` не блокирует.
+- Warehouse contract audit обновлён до внутренней версии `20.49`: PASS возможен только при успешном documented `GET /v2/warehouse/` с реальными warehouse IDs.
+- `/v2/company/locations` больше не используется как источник branch IDs для warehouse PASS.
+- Stock GET не заменяет Warehouse List GET.
+- Недокументированные compatibility endpoints не используются для PASS.
 
 ## 6. Правила
 
-1. Workflow является источником истины для фактического ACTIVE execution set.
+1. Workflow является источником истины для ACTIVE execution set.
 2. Import/dependency graph является источником истины для REQUIRED INTERNAL DEPENDENCIES.
 3. Более новая версия не заменяет старую автоматически.
-4. Архивирование = перенос только после dependency audit и проверки test discovery.
+4. Архивирование выполняется только после dependency audit и проверки test discovery.
 5. История Git/GitHub Actions сохраняется.
 6. После любого изменения ACTIVE execution set или dependency chain требуется новый Unified Control Plane run.
+7. Production WRITE запрещён до прохождения production safety gates из Issue #19.

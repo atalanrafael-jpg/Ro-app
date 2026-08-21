@@ -23,22 +23,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -RInE --exclude-dir=.git --exclude='*.lock' \
-            'ROAPP_API_KEY[[:space:]]*=[[:space:]]*["'"'][^"'"']{12,}["'"']|Bearer[[:space:]]+[A-Za-z0-9._-]{20,}' .; then
-            echo 'Credential-like material detected in tracked source.'
-            exit 1
-          fi
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          patterns = [
+              re.compile(r'''ROAPP_API_KEY\s*=\s*["'][^"']{12,}["']'''),
+              re.compile(r'''Bearer\s+[A-Za-z0-9._-]{20,}'''),
+          ]
+          hits = []
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts or path.suffix in {'.lock', '.pyc'}:
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8', errors='ignore')
+              except OSError:
+                  continue
+              if any(pattern.search(text) for pattern in patterns):
+                  hits.append(str(path))
+          if hits:
+              print('Credential-like material detected in tracked source:', ', '.join(sorted(hits)))
+              raise SystemExit(1)
+          print('SOURCE_SECRET_SCAN=PASS')
+          PY
 
       - name: Verify API key is only supplied by GitHub secret
         shell: bash
         run: |
           set -euo pipefail
           test -n "${ROAPP_API_KEY:-}"
+          echo 'API_KEY_SOURCE=GITHUB_ACTIONS_SECRET'
 
       - name: Run fail-closed Issue #19 gate
         run: python scripts/marsel_production_gate_v1.py
 
       - name: Explicitly assert no production WRITE authorization
+        if: ${{ always() }}
         run: |
           test "${MARSEL_WRITE_APPROVED}" = "false"
           echo 'PRODUCTION_WRITE_AUTHORIZED=false'
