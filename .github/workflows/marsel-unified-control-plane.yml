@@ -74,6 +74,43 @@ jobs:
           ROAPP_MAX_RETRIES: "2"
           ROAPP_MIN_REQUEST_INTERVAL: "0.34"
         run: python scripts/marsel_entity_audit_v20_35.py
+      - name: Discover live warehouse branch id
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+          base = os.environ['ROAPP_API_BASE'].rstrip('/')
+          key = os.environ['ROAPP_API_KEY']
+          req = Request(f'{base}/company/locations', headers={
+              'Authorization': f'Bearer {key}',
+              'Accept': 'application/json',
+              'User-Agent': 'MARSEL-Unified-Control-Plane',
+          }, method='GET')
+          try:
+              with urlopen(req, timeout=float(os.environ.get('ROAPP_TIMEOUT','30'))) as r:
+                  payload = json.loads(r.read().decode('utf-8'))
+              data = payload.get('data') if isinstance(payload, dict) else payload
+              rows = data if isinstance(data, list) else []
+              ids = []
+              for row in rows:
+                  if isinstance(row, dict):
+                      value = row.get('id')
+                      if isinstance(value, (int, str)) and str(value).strip():
+                          value = str(value).strip()
+                          if value not in ids:
+                              ids.append(value)
+              if ids:
+                  with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+                      fh.write(f'ROAPP_BRANCH_ID={ids[0]}\n')
+                  print(f'ROAPP_BRANCH_ID_DISCOVERED={ids[0]}')
+                  print(f'ROAPP_BRANCH_ID_CANDIDATE_COUNT={len(ids)}')
+              else:
+                  print('ROAPP_BRANCH_ID_DISCOVERED=NONE')
+          except Exception as exc:
+              print(f'ROAPP_BRANCH_ID_DISCOVERY_ERROR={type(exc).__name__}: {exc}')
+          PY
       - name: Canonical READ-ONLY product collision review
         timeout-minutes: 10
         continue-on-error: true
@@ -117,6 +154,15 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          required = ['marsel-unified-api-inventory.json','marsel-unified-data-quality.json','marsel-unified-entity-audit.json','marsel-unified-product-collisions.json','marsel-unified-warehouse-contract.json']
+          missing = [x for x in required if not Path(x).exists()]
+          if missing:
+              raise SystemExit(f'Missing audit evidence: {missing}')
+          inv=json.load(open(required[0],encoding='utf-8'))
+          dq=json.load(open(required[1],encoding='utf-8'))
+          ent=json.load(open(required[2],encoding='utf-8'))
+          col=json.load(open(required[3],encoding='utf-8'))
+          wh=json.load(open(required[4],encoding='utf-8'))
           required = [
               'marsel-unified-api-inventory.json',
               'marsel-unified-data-quality.json',
@@ -137,6 +183,22 @@ jobs:
           assert ent.get('safety', {}).get('identifiers_guessed') is False
           assert col.get('mode') == 'READ_ONLY' and col.get('write_requests_made') == 0 and col.get('ro_app_data_mutated') is False
           assert wh.get('mode') == 'READ_ONLY' and wh.get('readonly') is True and wh.get('write_requests_made') == 0 and wh.get('ro_app_data_mutated') is False
+          quality='PASS' if not dq.get('access_failures') and not dq.get('hard_issues') else 'REVIEW_REQUIRED'
+          entity_blockers=[x for x in ent.get('blocked_entities',[]) if x.get('entity') != 'warehouse']
+          entity_failures=[x for x in ent.get('failed_entities',[]) if x.get('entity') != 'warehouse']
+          entity_review='PASS' if not entity_blockers and not entity_failures else 'REVIEW_REQUIRED'
+          duplicate_groups=int(col.get('duplicate_code_group_count') or 0)
+          collision_error=bool(col.get('error'))
+          collision_gate='PASS' if not collision_error else 'REVIEW_REQUIRED'
+          warehouse_gate='PASS' if wh.get('result') == 'PASS' and bool(wh.get('confirmed_live_gets')) else 'REVIEW_REQUIRED'
+          final='PASS' if quality=='PASS' and entity_review=='PASS' and collision_gate=='PASS' and warehouse_gate=='PASS' else 'REVIEW_REQUIRED'
+          print(f'DATA_QUALITY_RESULT={quality}')
+          print(f'ENTITY_AUDIT_RESULT={entity_review}')
+          print(f'ENTITY_AUDIT_NON_WAREHOUSE_BLOCKERS={len(entity_blockers)}')
+          print(f'DUPLICATE_CODE_GROUP_COUNT={duplicate_groups}')
+          print(f'COLLISION_REVIEW_RESULT={collision_gate}')
+          print('COLLISION_INTERPRETATION=REVIEW_ONLY; product-code uniqueness is not assumed by this audit')
+          print(f'WAREHOUSE_CONTRACT_RESULT={warehouse_gate}')
           quality = 'PASS' if not dq.get('access_failures') and not dq.get('hard_issues') else 'REVIEW_REQUIRED'
           eb = [x for x in ent.get('blocked_entities', []) if x.get('entity') != 'warehouse']
           ef = [x for x in ent.get('failed_entities', []) if x.get('entity') != 'warehouse']
@@ -177,6 +239,19 @@ jobs:
           else:
               inv,dq,ent,col,wh = [json.load(open(x,encoding='utf-8')) for x in fs]
           fs=['marsel-unified-api-inventory.json','marsel-unified-data-quality.json','marsel-unified-entity-audit.json','marsel-unified-product-collisions.json','marsel-unified-warehouse-contract.json']
+          if any(not Path(x).exists() for x in fs):
+              out={'system':'MARSEL Unified Control Plane','status':'INCOMPLETE','readonly':True,'write_requests_made':0,'ro_app_data_mutated':False}
+          else:
+              inv,dq,ent,col,wh=[json.load(open(x,encoding='utf-8')) for x in fs]
+              q='PASS' if not dq.get('access_failures') and not dq.get('hard_issues') else 'REVIEW_REQUIRED'
+              eb=[x for x in ent.get('blocked_entities',[]) if x.get('entity') != 'warehouse']
+              ef=[x for x in ent.get('failed_entities',[]) if x.get('entity') != 'warehouse']
+              e='PASS' if not eb and not ef else 'REVIEW_REQUIRED'
+              duplicate_groups=int(col.get('duplicate_code_group_count') or 0)
+              c='PASS' if not col.get('error') else 'REVIEW_REQUIRED'
+              w='PASS' if wh.get('result') == 'PASS' and bool(wh.get('confirmed_live_gets')) else 'REVIEW_REQUIRED'
+              final='PASS' if q=='PASS' and e=='PASS' and c=='PASS' and w=='PASS' else 'REVIEW_REQUIRED'
+              out={'system':'MARSEL Unified Control Plane','status':'VERIFIED' if final=='PASS' else 'REVIEW_REQUIRED','readonly':True,'write_requests_made':0,'ro_app_data_mutated':False,'api_inventory':{'contract_state':inv.get('contract_state',{}),'summary':inv.get('summary',{}),'safety':inv.get('safety',{})},'data_quality':{'result':q,'summary':dq.get('summary',{}),'access_failures':dq.get('access_failures',[]),'hard_issues':dq.get('hard_issues',[])},'entity_audit':{'result':e,'resolved_entities':ent.get('resolved_entities',[]),'blocked_entities':ent.get('blocked_entities',[]),'failed_entities':ent.get('failed_entities',[]),'non_warehouse_blockers':eb,'non_warehouse_failures':ef},'product_collision_review':{'result':c,'review_only':True,'duplicate_code_group_count':duplicate_groups,'collisions':col.get('collisions',[]),'error':col.get('error'),'interpretation':'Duplicate product codes are review evidence only; this audit does not assume code uniqueness.'},'warehouse_contract':{'result':w,'confirmed_live_gets':wh.get('confirmed_live_gets',[]),'explicit_get_contracts':wh.get('explicit_get_contracts',[]),'reference_pages':wh.get('warehouse_reference_pages',[])}}
           missing=[x for x in fs if not Path(x).exists()]
           out={'system':'MARSEL Unified Control Plane','status':'INCOMPLETE','readonly':True,'write_requests_made':0,'ro_app_data_mutated':False,'missing_evidence':missing}
           if not missing:

@@ -1,5 +1,19 @@
 # MARSEL / ROAPP — ЕДИНАЯ КАНОНИЧЕСКАЯ СТРУКТУРА
 
+Дата ревизии: 2026-08-20
+Канонический репозиторий: `atalanrafael-jpg/Ro-app`
+Каноническая ветка: `main`
+
+## 1. Единая система
+
+MARSEL и ROAPP — один проект и один исходный контур.
+
+- MARSEL — бизнес-контур: бренд, клиенты, заказы, изделия, ремонт, производство, склад, материалы, финансы, продажи и маркетинг.
+- ROAPP — технологический контур той же системы: API, данные, интеграции, автоматизация, MCP и CI/CD.
+- `atalanrafael-jpg/Ro-app` — единый источник истины.
+- Запрещены независимые MARSEL/ROAPP runtime-контуры и дублирующие live-аудиты.
+
+## 2. Единственная точка live-аудита RO App
 Дата ревизии: 2026-08-22  
 Ветка: `main`
 
@@ -21,6 +35,30 @@
 `.github/workflows/marsel-unified-control-plane.yml`
 
 Порядок выполнения:
+
+1. API inventory — READ ONLY
+2. Data quality — READ ONLY
+3. Entity audit — READ ONLY
+4. Product-code collision review — READ ONLY
+5. Warehouse contract audit — READ ONLY
+6. Unified safety/quality gate
+7. Unified evidence artifact
+
+Специализированные live-аудиты не должны запускаться отдельным workflow, если их проверка уже входит в Unified Control Plane.
+
+## 3. Канонические runtime-компоненты
+
+- `scripts/marsel_api_inventory_v20_32.py` — текущая точка входа inventory; использует `v20_31` как общий слой.
+- `scripts/marsel_api_inventory_v20_31.py` — внутренний слой inventory.
+- `scripts/marsel_api_inventory_v20_29.py` — базовый общий движок inventory.
+- `scripts/marsel_data_quality_v22_readonly.py` — data quality.
+- `scripts/marsel_entity_audit_v20_35.py` — entity audit.
+- `scripts/marsel_product_code_collision_audit_v22_1.py` — collision review.
+- `scripts/marsel_warehouse_contract_v20_36.py` — warehouse contract audit; запускается внутри Unified Control Plane.
+- `scripts/marsel_api_v2_probe_v1.py` — канонический read-only probe.
+- `scripts/marsel_api_v2_canonical_registry_v1.py` — evidence/registry support.
+
+Версионные внутренние слои сохраняются только как зависимости канонического entrypoint либо как исторически необходимые компоненты. Новый отдельный live-аудит для той же области не добавляется.
 
 1. Canonical structure self-check
 2. RO App secret presence check
@@ -77,6 +115,9 @@ Support runtime:
 
 ```text
 Ro-app/
+├── app/                 # единый прикладной runtime
+├── ai_service/          # AI service layer
+├── config/              # конфигурация и fixtures
 ├── app/                 # application runtime
 ├── ai_service/          # AI service layer
 ├── config/              # configuration and fixtures
@@ -89,6 +130,9 @@ Ro-app/
 ├── javascript/          # GPT integration
 ├── typescript/          # GPT integration
 ├── python/              # Python integration
+├── plugins/             # упакованный MARSEL ROAPP plugin
+├── .agents/             # Codex/agent skill surface
+├── .github/workflows/   # CI + единый MARSEL live-audit
 ├── 02_ROAPP/CONTROL/    # control registries
 ├── .github/workflows/   # CI + Unified Control Plane
 ├── .agents/             # agent skills/contracts
@@ -98,6 +142,9 @@ Ro-app/
 
 ## 5. CI-разделение
 
+- `marsel-unified-control-plane.yml` — единственный live Ro App audit и единый evidence gate.
+- `test.yml` — только unit tests, compile и dependency checks.
+- `mcp-production.yml` — application/MCP tests и dependency vulnerability audit; live RO App data audit не выполняет.
 - `marsel-unified-control-plane.yml` — единственный RO App live-audit workflow.
 - `test.yml` — unit/compile/dependency validation; live RO App audit сюда не входит.
 - `language-quality.yml` — языковые проверки.
@@ -111,6 +158,7 @@ Ro-app/
 └── requirements.txt
 ```
 
+## 6. Обязательные safety invariants
 ## 5. CI/CD разделение
 
 ### CORE
@@ -132,6 +180,16 @@ Ro-app/
 - `RO_APP_DATA_MUTATED=false`;
 - `identifiers_guessed=false`;
 - отсутствие POST/PUT/PATCH/DELETE в live-аудите;
+- неполные live-данные = `REVIEW_REQUIRED`, никогда не `PASS`;
+- старый успешный запуск не заменяет новый запуск на текущем commit.
+
+## 7. Plugin и agent surfaces
+
+`plugins/marsel-roapp/` и `.agents/skills/roapp-mcp/` относятся к одному MARSEL ROAPP проекту, но обслуживают разные поверхности интеграции. Их нельзя считать двумя проектами. Изменения MCP-поверхности должны оставаться read-only и синхронизироваться по единой политике безопасности.
+
+## 8. Критерий завершения
+
+Проект считается проверенным только после успешного запуска Unified Control Plane на актуальном `main` с единым evidence artifact и прохождением всех safety/data/entity/collision/warehouse gates.
 - неполные или неподтверждённые live-данные = `REVIEW_REQUIRED`, никогда не `PASS`;
 - старый успешный запуск не заменяет новый запуск на текущем `main`;
 - секреты не хранятся в репозитории.
