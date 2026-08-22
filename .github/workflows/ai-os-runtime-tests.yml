@@ -1,0 +1,29 @@
+name: AI OS Runtime Tests
+
+on:
+  pull_request:
+    paths:
+      - 'ai_os/**'
+      - '.github/workflows/ai-os-runtime-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ai_os/**'
+      - '.github/workflows/ai-os-runtime-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Run control-plane tests
+        working-directory: ai_os
+        run: python -m unittest -v test_control_plane.py
